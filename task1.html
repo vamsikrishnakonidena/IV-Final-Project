@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Car Visualization</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .tooltip {
+      position: absolute;
+      background: #eee;
+      padding: 8px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+    }
+    svg {
+      font-family: sans-serif;
+    }
+    .bar {
+      fill: steelblue;
+    }
+    .bar:hover {
+      fill: orange;
+    }
+  </style>
+</head>
+<body>
+  <h2>Car Horsepower vs Weight</h2>
+
+<div id="scatter"></div>
+<svg id="barchart1" width="800" height="300"></svg>
+<svg id="barchart2" width="800" height="300"></svg>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const margin = { top: 30, right: 30, bottom: 70, left: 60 },
+      width = 800 - margin.left - margin.right,
+      height = 400 - margin.top - margin.bottom,
+      barHeight = 250;
+
+const svg = d3.select("#scatter")
+  .append("svg")
+  .attr("width", width + margin.left + margin.right)
+  .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+  .attr("transform", `translate(${margin.left},${margin.top})`);
+
+const svgBar1 = d3.select("#barchart1");
+const svgBar2 = d3.select("#barchart2");
+
+const tooltip = d3.select("#tooltip");
+
+d3.csv("a1-cars.csv").then(data => {
+  data.forEach(d => {
+    d.horsepower = +d.Horsepower;
+    d.weight = +d.Weight;
+  });
+
+  const x = d3.scaleLinear()
+    .domain([d3.min(data, d => d.weight) - 100, d3.max(data, d => d.weight) + 100])
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain([d3.min(data, d => d.horsepower) - 10, d3.max(data, d => d.horsepower) + 10])
+    .range([height, 0]);
+
+  svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x));
+  svg.append("g").call(d3.axisLeft(y));
+
+  const dots = svg.append("g")
+    .selectAll("circle")
+    .data(data)
+    .enter().append("circle")
+    .attr("cx", d => x(d.weight))
+    .attr("cy", d => y(d.horsepower))
+    .attr("r", 5)
+    .attr("fill", "steelblue")
+    .on("mouseover", (event, d) => {
+      tooltip.style("opacity", 1)
+        .html(`<strong>${d.Car}</strong><br>Horsepower: ${d.horsepower}<br>Weight: ${d.weight}`)
+        .style("left", (event.pageX + 10) + "px")
+        .style("top", (event.pageY - 28) + "px");
+    })
+    .on("mouseout", () => tooltip.style("opacity", 0));
+
+  const brush = d3.brush()
+    .extent([[0, 0], [width, height]])
+    .on("end", brushed);
+
+  svg.append("g").call(brush);
+
+  function brushed(event) {
+    const [[x0, y0], [x1, y1]] = event.selection || [[0, 0], [0, 0]];
+    const selected = data.filter(d =>
+      x(d.weight) >= x0 && x(d.weight) <= x1 &&
+      y(d.horsepower) >= y0 && y(d.horsepower) <= y1
+    );
+
+    dots.attr("fill", d =>
+      selected.includes(d) ? "orange" : "steelblue"
+    );
+
+    updateBarChart1(selected);
+    updateBarChart2(selected);
+  }
+
+  function updateBarChart1(filteredData) {
+    const carList = filteredData.map(d => ({
+      key: d.Car,
+      value: d.horsepower,
+      weight: d.weight
+    }));
+
+    svgBar1.selectAll("*").remove();
+
+    const xBar = d3.scaleBand()
+      .domain(carList.map(d => d.key))
+      .range([0, width])
+      .padding(0.1);
+
+    const yBar = d3.scaleLinear()
+      .domain([0, d3.max(carList, d => d.value)])
+      .nice()
+      .range([barHeight, 0]);
+
+    const g = svgBar1.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xAxisGroup = g.append("g")
+      .attr("transform", `translate(0,${barHeight})`)
+      .attr("class", "x-axis")
+      .call(d3.axisBottom(xBar))
+      .selectAll("text")
+      .attr("transform", "rotate(-45)")
+      .style("text-anchor", "end");
+
+    g.append("g").call(d3.axisLeft(yBar));
+
+    const barsGroup = g.append("g").attr("class", "bars");
+
+    barsGroup.selectAll(".bar")
+      .data(carList)
+      .enter().append("rect")
+      .attr("class", "bar")
+      .attr("x", d => xBar(d.key))
+      .attr("y", d => yBar(d.value))
+      .attr("width", xBar.bandwidth())
+      .attr("height", d => barHeight - yBar(d.value))
+      .on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1)
+          .html(`<strong>${d.key}</strong><br>Horsepower: ${d.value}<br>Weight: ${d.weight}`)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mouseout", () => tooltip.style("opacity", 0));
+
+    const zoom = d3.zoom()
+      .scaleExtent([1, 5])
+      .translateExtent([[0, 0], [width, barHeight]])
+      .on("zoom", (event) => {
+        const transform = event.transform;
+        barsGroup.attr("transform", `translate(${transform.x},0) scale(${transform.k},1)`);
+        g.select(".x-axis")
+          .call(d3.axisBottom(xBar).scale(transform.rescaleX(xBar)))
+          .selectAll("text")
+          .attr("transform", "rotate(-45)")
+          .style("text-anchor", "end");
+      });
+
+    svgBar1.call(zoom);
+  }
+
+  function updateBarChart2(filteredData) {
+    const counts = d3.rollup(filteredData, v => v.length, d => d.Manufacturer);
+    const dataArray = Array.from(counts, ([key, value]) => ({ key, value }));
+
+    svgBar2.selectAll("*").remove();
+
+    const xBar = d3.scaleBand()
+      .domain(dataArray.map(d => d.key))
+      .range([0, width])
+      .padding(0.1);
+
+    const yBar = d3.scaleLinear()
+      .domain([0, d3.max(dataArray, d => d.value)])
+      .nice()
+      .range([barHeight, 0]);
+
+    const g = svgBar2.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    g.append("g")
+      .attr("transform", `translate(0,${barHeight})`)
+      .call(d3.axisBottom(xBar))
+      .selectAll("text")
+      .attr("transform", "rotate(-45)")
+      .style("text-anchor", "end");
+
+    g.append("g").call(d3.axisLeft(yBar));
+
+    g.selectAll(".bar")
+      .data(dataArray)
+      .enter().append("rect")
+      .attr("class", "bar")
+      .attr("x", d => xBar(d.key))
+      .attr("y", d => yBar(d.value))
+      .attr("width", xBar.bandwidth())
+      .attr("height", d => barHeight - yBar(d.value))
+      .on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1)
+          .html(`<strong>${d.key}</strong><br>Count: ${d.value}`)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY - 28) + "px");
+      })
+      .on("mouseout", () => tooltip.style("opacity", 0));
+  }
+});
+</script>
+
+</body>
+</html>

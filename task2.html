@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Task 2 - MPG by Year</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+    .line {
+      fill: none;
+      stroke-width: 2px;
+    }
+    .legend {
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .tooltip {
+      position: absolute;
+      background: #fff;
+      padding: 6px 10px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+  <h2>Task 2: Average MPG over Model Years</h2>
+  <svg id="chart" width="900" height="400"></svg>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const svg = d3.select("#chart"),
+          width = +svg.attr("width") - 100,
+          height = +svg.attr("height") - 60,
+          margin = {top: 30, right: 100, bottom: 50, left: 60};
+
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const tooltip = d3.select("#tooltip");
+
+    const colors = {
+      "American": "#1f77b4",
+      "European": "#2ca02c",
+      "Japanese": "#ff7f0e",
+      "Average": "#9467bd"
+    };
+
+    const x = d3.scaleLinear().range([0, width]);
+    const y = d3.scaleLinear().range([height, 0]);
+
+    const xAxis = g.append("g").attr("transform", `translate(0,${height})`);
+    const yAxis = g.append("g");
+
+    const line = d3.line()
+      .x(d => x(d.year))
+      .y(d => y(d.mpg));
+
+    const visible = new Set(); // Which origins to show
+
+    d3.csv("a1-cars.csv").then(raw => {
+      const data = raw.filter(d => d.MPG !== "").map(d => ({
+        year: +d["Model Year"],
+        mpg: +d.MPG,
+        origin: d.Origin
+      }));
+
+      const origins = ["American", "European", "Japanese"];
+
+      const groupedByOrigin = origins.reduce((acc, origin) => {
+        const values = d3.rollups(
+          data.filter(d => d.origin === origin),
+          v => d3.mean(v, d => d.mpg),
+          d => d.year
+        ).map(([year, mpg]) => ({ year, mpg })).sort((a, b) => a.year - b.year);
+        acc[origin] = values;
+        return acc;
+      }, {});
+
+      const avgData = d3.rollups(
+        data,
+        v => d3.mean(v, d => d.mpg),
+        d => d.year
+      ).map(([year, mpg]) => ({ year, mpg })).sort((a, b) => a.year - b.year);
+      groupedByOrigin["Average"] = avgData;
+
+      const allYears = Array.from(new Set(data.map(d => d.year))).sort((a, b) => a - b);
+      const allMPGs = data.map(d => d.mpg);
+
+      x.domain(d3.extent(allYears));
+      y.domain([d3.min(allMPGs) - 2, d3.max(allMPGs) + 2]);
+
+      xAxis.call(d3.axisBottom(x).tickFormat(d3.format("d")));
+      yAxis.call(d3.axisLeft(y));
+
+      const lineGroup = g.append("g").attr("class", "lines");
+
+      function updateChart() {
+        const current = Array.from(visible);
+
+        const lines = lineGroup.selectAll(".line-path")
+          .data(current, d => d);
+
+        lines.enter()
+          .append("path")
+          .attr("class", "line-path")
+          .attr("stroke", d => colors[d])
+          .attr("fill", "none")
+          .attr("d", d => line(groupedByOrigin[d]))
+          .attr("stroke-width", 2)
+          .on("mouseover", function(event, d) {
+            tooltip.style("opacity", 1);
+          })
+          .on("mousemove", function(event, d) {
+            const [xPos] = d3.pointer(event);
+            const year = Math.round(x.invert(xPos));
+            const yearData = groupedByOrigin[d].find(p => p.year === year);
+            if (yearData) {
+              tooltip
+                .html(`<strong>${d}</strong><br>Year: ${yearData.year}<br>MPG: ${yearData.mpg.toFixed(2)}`)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 28) + "px");
+            }
+          })
+          .on("mouseout", function() {
+            tooltip.style("opacity", 0);
+          })
+          .merge(lines)
+          .transition()
+          .duration(500)
+          .attr("d", d => line(groupedByOrigin[d]));
+
+        lines.exit().remove();
+      }
+
+      const legend = svg.append("g")
+        .attr("transform", `translate(${width + margin.left + 20},${margin.top})`);
+
+      ["American", "European", "Japanese", "Average"].forEach((key, i) => {
+        const legendRow = legend.append("g")
+          .attr("transform", `translate(0, ${i * 45})`) // Increased vertical spacing for label
+          .attr("class", "legend")
+          .on("click", () => {
+            if (visible.has(key)) {
+              visible.delete(key);
+            } else {
+              visible.add(key);
+            }
+            updateChart();
+          });
+
+        legendRow.append("rect")
+          .attr("width", 18)
+          .attr("height", 18)
+          .attr("fill", colors[key]);
+
+        // Label text below the color box, with additional horizontal space
+        legendRow.append("text")
+          .attr("x", 9)  // Adjusted for better centering
+          .attr("y", 38) // Positioned below the color box
+          .attr("text-anchor", "middle")
+          .text(key);
+      });
+    });
+  </script>
+</body>
+</html>

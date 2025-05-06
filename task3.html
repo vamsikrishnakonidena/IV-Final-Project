@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Task 3 - Parallel Coordinates</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+    .axis path,
+    .axis line {
+      fill: none;
+      stroke: #000;
+      shape-rendering: crispEdges;
+    }
+    .line {
+      fill: none;
+      stroke-width: 1.2px;
+      opacity: 0.25;
+    }
+    .line.highlighted {
+      stroke-width: 2;
+      opacity: 1;
+    }
+    .tooltip {
+      position: absolute;
+      background: #fff;
+      padding: 6px 10px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .dimension-label {
+      font-size: 16px;
+      text-align: center;
+      font-weight: bold;
+      margin: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Task 3: Compare Car Specs (Parallel Coordinates)</h2>
+  
+  <!-- Static Labels for Dimensions -->
+  <div class="dimension-label">MPG</div>
+  <div class="dimension-label">Cylinders</div>
+  <div class="dimension-label">Displacement</div>
+  <div class="dimension-label">Horsepower</div>
+  <div class="dimension-label">Weight</div>
+
+  <svg id="parallel" width="960" height="500"></svg>
+  <div id="tooltip" class="tooltip"></div>
+
+  <script>
+    const margin = {top: 30, right: 30, bottom: 10, left: 30},
+          width = 960 - margin.left - margin.right,
+          height = 500 - margin.top - margin.bottom;
+
+    const svg = d3.select("#parallel")
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const tooltip = d3.select("#tooltip");
+
+    const dimensions = ["MPG", "Cylinders", "Displacement", "Horsepower", "Weight"];
+
+    const colorScale = {
+      "American": "#1f77b4",
+      "European": "#2ca02c",
+      "Japanese": "#ff7f0e"
+    };
+
+    d3.csv("a1-cars.csv").then(data => {
+      // Filter out rows where any dimension has missing or invalid data
+      data = data.filter(d => {
+        return dimensions.every(dim => !isNaN(+d[dim]) && d[dim] !== "");
+      });
+
+      // Convert all dimensions to numbers
+      data.forEach(d => {
+        dimensions.forEach(dim => d[dim] = +d[dim]);
+      });
+
+      const y = {};
+      for (const dim of dimensions) {
+        y[dim] = d3.scaleLinear()
+          .domain(d3.extent(data, d => d[dim]))
+          .range([height, 0]);
+      }
+
+      const x = d3.scalePoint()
+        .domain(dimensions)
+        .range([0, width]);
+
+      function path(d) {
+        return d3.line()(dimensions.map(p => [x(p), y[p](d[p])]));
+      }
+
+      // Draw background lines
+      const lines = svg.append("g")
+        .attr("class", "lines")
+        .selectAll("path")
+        .data(data)
+        .join("path")
+        .attr("class", "line")
+        .attr("d", path)
+        .attr("stroke", d => colorScale[d.Origin])
+        .on("mouseover", function(event, d) {
+          d3.select(this).classed("highlighted", true);
+          tooltip.style("opacity", 1)
+            .html(`<strong>${d["Car"]}</strong><br>
+              Manufacturer: ${d["Manufacturer"]}<br>
+              Origin: ${d.Origin}<br>
+              MPG: ${d.MPG}<br>
+              Cylinders: ${d.Cylinders}<br>
+              Displacement: ${d.Displacement}<br>
+              Horsepower: ${d.Horsepower}<br>
+              Weight: ${d.Weight}`)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mousemove", function(event) {
+          tooltip.style("left", (event.pageX + 10) + "px")
+                 .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", function() {
+          d3.select(this).classed("highlighted", false);
+          tooltip.style("opacity", 0);
+        });
+
+      // Add axes + brushing
+      svg.selectAll(".dimension")
+        .data(dimensions)
+        .join("g")
+        .attr("class", "dimension")
+        .attr("transform", d => `translate(${x(d)})`)
+        .each(function(d) {
+          d3.select(this).call(d3.axisLeft(y[d]));
+
+          // Add brush
+          d3.select(this)
+            .append("g")
+            .attr("class", "brush")
+            .call(d3.brushY()
+              .extent([[-10, 0], [10, height]])
+              .on("start brush end", brushed)
+            );
+        });
+
+      function brushed() {
+        const actives = [];
+
+        svg.selectAll(".brush")
+          .filter(function(d, i) {
+            const selection = d3.brushSelection(this);
+            if (selection) {
+              actives.push({
+                dim: dimensions[i],
+                extent: selection.map(y[dimensions[i]].invert)
+              });
+              return true;
+            }
+            return false;
+          });
+
+        lines.style("display", d => {
+          return actives.every(({dim, extent}) => {
+            const [min, max] = extent;
+            return d[dim] >= Math.min(min, max) && d[dim] <= Math.max(min, max);
+          }) ? null : "none";
+        });
+      }
+    });
+  </script>
+</body>
+</html>
